@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>即時全身骨架追蹤（PoseNet）- 修好版</title>
+  <style>
+    body {font-family: Arial, sans-serif; text-align: center; background:#f0f0f0; margin:0;}
+    #container {margin:20px auto; position:relative; width:640px; height:480px; background:black; display:inline-block;}
+    canvas {position:absolute; top:0; left:0;}
+    button {margin:20px; padding:12px 24px; font-size:18px;}
+    #info {margin-top:20px; font-size:16px; color:#333;}
+  </style>
+</head>
+<body>
+
+  <h1>電腦鏡頭全身骨架追蹤（PoseNet）</h1>
+  <button id="startBtn">開始追蹤</button>
+  
+  <div id="container">
+    <!-- 這裡直接用 video 標籤，更穩定 -->
+    <video id="video" width="640" height="480" autoplay playsinline></video>
+    <canvas id="overlay" width="640" height="480"></canvas>
+  </div>
+  <div id="info">請用 localhost 或 https 開啟此檔案，才能使用攝影機</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+    const info = document.getElementById('info');
+
+    let model;
+
+    async function init() {
+      document.getElementById('startBtn').disabled = true;
+      info.textContent = '模型載入中…';
+
+      const URL = "https://storage.googleapis.com/teachablemachine-models/posenet/mobilenet/";
+      model = await tmPose.load(URL + "model.json", URL + "metadata.json");
+
+      // 關鍵修法：改用標準 getUserMedia，自己手動把 stream 塞進 video
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 },
+          audio: false
+        });
+        video.srcObject = stream;
+        
+        // 等第一幀出來再開始 loop
+        video.onloadedmetadata = () => {
+          video.play();
+          info.textContent = '偵測中… 請站到鏡頭前';
+          window.requestAnimationFrame(loop);
+        };
+
+      } catch (err) {
+        info.textContent = '無法取得攝影機權限！請確認用 localhost 或 https 開啟，並允許攝影機';
+        console.error(err);
+        document.getElementById('startBtn').disabled = false;
+      }
+    }
+
+    async function loop() {
+      await predict();
+      window.requestAnimationFrame(loop);
+    }
+
+    async function predict() {
+      const { pose } = await model.estimatePose(video);  // 直接傳 video 元素
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, 640, 480);
+
+      if (pose && pose.score > 0.3) {
+        tmPose.drawKeypoints(pose.keypoints, 0.5, ctx);
+        tmPose.drawSkeleton(pose.keypoints, 0.5, ctx);
+        info.textContent = `全身已偵測！信心度：${pose.score.toFixed(2)}`;
+      } else {
+        info.textContent = '沒有偵測到人體';
+      }
+    }
+
+    document.getElementById('startBtn').addEventListener('click', init);
+  </script>
+</body>
+</html>
