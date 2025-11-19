@@ -1,90 +1,455 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-HK">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>即時全身骨架追蹤（PoseNet）- 修好版</title>
-  <style>
-    body {font-family: Arial, sans-serif; text-align: center; background:#f0f0f0; margin:0;}
-    #container {margin:20px auto; position:relative; width:640px; height:480px; background:black; display:inline-block;}
-    canvas {position:absolute; top:0; left:0;}
-    button {margin:20px; padding:12px 24px; font-size:18px;}
-    #info {margin-top:20px; font-size:16px; color:#333;}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>micro:bit 機械臂控制器（手機完美相容版）</title>
+<style>
+  * { touch-action: pan-x pan-y; } /* 防止長按出現選單 */
+  
+  body { 
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 10px;
+    background: #f8f9fa;
+    margin: 0;
+    color: #333;
+    min-height: 100vh;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1 { 
+    text-align: center; 
+    margin: 10px 0 5px;
+    font-size: 24px;
+  }
+
+  .main-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-top: 10px;
+  }
+
+  @media (min-width: 768px) {
+    .main-container {
+      flex-direction: row;
+      gap: 40px;
+    }
+  }
+
+  .controls { 
+    position: relative;
+    min-height: 620px;
+    background: rgba(255,255,255,0.92);
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow: 0 10px 35px rgba(0,0,0,0.15);
+    overflow: hidden;
+    flex: 1;
+  }
+
+  /* 手機專用：按鈕更大更好按 */
+  .btn-size { width: 130px; height: 130px; }
+  @media (min-width: 768px) {
+    .btn-size { width: 110px; height: 110px; }
+  }
+
+  .draggable-btn, .mode-toggle-btn {
+    position: absolute;
+    z-index: 10;
+    class="btn-size"
+  }
+
+  .mode-toggle-btn {
+    top: 20px;
+    left: 20px;
+    z-index: 20;
+  }
+
+  .draggable-btn.dragging {
+    opacity: 0.85;
+    z-index: 100;
+    transform: rotate(8deg) scale(1.1);
+    box-shadow: 0 15px 30px rgba(0,0,0,0.3);
+  }
+
+  .button-28 {
+    appearance: none;
+    background: transparent;
+    border: 3px solid #1A1A1A;
+    border-radius: 20px;
+    color: #1A1A1A;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 22px;
+    width: 100%;
+    height: 100%;
+    transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+    -webkit-user-select: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  .button-28:hover, .button-28:active {
+    color: white;
+    background: #1A1A1A;
+    transform: translateY(-4px);
+    box-shadow: 0 12px 25px rgba(0,0,0,0.3);
+  }
+
+  #toggleCustomMode.custom-on {
+    background: #28a745 !important;
+    color: white !important;
+    border-color: #28a745 !important;
+  }
+
+  #status { 
+    padding: 16px; 
+    border-radius: 16px; 
+    margin: 15px 10px; 
+    font-size: 18px; 
+    text-align: center;
+    font-weight: 600;
+  }
+
+  .connection-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 15px 0;
+  }
+  .connection-buttons button {
+    min-width: 220px;
+    height: 60px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .sidebar {
+    background: white;
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 10px 35px rgba(0,0,0,0.12);
+    margin: 0 10px;
+  }
+  @media (min-width: 768px) {
+    .sidebar { margin: 0; }
+  }
+
+  #currentBig {
+    font-size: 64px;
+    font-weight: 900;
+    padding: 40px 20px;
+    border-radius: 20px;
+    min-height: 100px;
+    text-align: center;
+  }
+  .stopped { background: #f1f1f1; color: #999; }
+  .sending { background: #1A1A1A; color: white; animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.75; } }
+
+  .log {
+    background: #f8f9fa;
+    border-radius: 16px;
+    padding: 16px;
+    max-height: 280px;
+    overflow-y: auto;
+    font-family: SF Mono, Monaco, Consolas, monospace;
+    font-size: 15px;
+    border: 1px solid #eee;
+    margin-top: 10px;
+  }
+  .log-entry {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
 </head>
 <body>
 
-  <h1>電腦鏡頭全身骨架追蹤（PoseNet）</h1>
-  <button id="startBtn">開始追蹤</button>
-  
-  <div id="container">
-    <!-- 這裡直接用 video 標籤，更穩定 -->
-    <video id="video" width="640" height="480" autoplay playsinline></video>
-    <canvas id="overlay" width="640" height="480"></canvas>
+<h1>micro:bit 機械臂控制器</h1>
+
+<div class="connection-buttons">
+  <button class="button-28" id="connectBluetooth">連線 micro:bit (藍牙)</button>
+  <button class="button-28" id="connectUSB">連線 micro:bit (USB)</button>
+</div>
+
+<div id="status" class="warning">尚未連線</div>
+
+<div class="main-container">
+  <div class="controls" id="controlsArea">
+    <!-- 自訂模式按鈕（手機也大按鈕） -->
+    <div class="mode-toggle-btn btn-size">
+      <button class="button-28" id="toggleCustomMode">自訂<br>模式</button>
+    </div>
+
+    <div class="draggable-btn btn-size" id="btn-up"     style="top: 100px; left: 50%; transform: translateX(-50%);"><button class="button-28">↑ UP</button></div>
+    <div class="draggable-btn btn-size" id="btn-left"   style="top: 260px; left: 30px;"><button class="button-28">← LEFT</button></div>
+    <div class="draggable-btn btn-size" id="btn-open"   style="top: 260px; left: 50%; transform: translateX(-50%);"><button class="button-28">OPEN</button></div>
+    <div class="draggable-btn btn-size" id="btn-right"  style="top: 260px; right: 30px;"><button class="button-28">RIGHT →</button></div>
+    <div class="draggable-btn btn-size" id="btn-down"   style="top: 420px; left: 50%; transform: translateX(-50%);"><button class="button-28">↓ DOWN</button></div>
+    <div class="draggable-btn btn-size" id="btn-close"  style="top: 580px; left: 50%; transform: translateX(-50%);"><button class="button-28">CLOSE</button></div>
   </div>
-  <div id="info">請用 localhost 或 https 開啟此檔案，才能使用攝影機</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+  <div class="sidebar">
+    <div class="current-big">
+      <h2 style="margin:0 0 10px; text-align:center; color:#555;">目前指令</h2>
+      <div id="currentBig" class="stopped">停止</div>
+    </div>
+    <div>
+      <h2 style="margin:15px 0 10px; text-align:center; color:#555;">傳送紀錄</h2>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+</div>
 
-  <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('overlay');
-    const ctx = canvas.getContext('2d');
-    const info = document.getElementById('info');
+<script>
+// ==================== 所有原有功能完全保留 + 手機最佳化 ====================
+const UART_SERVICE_UUID           = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
-    let model;
+let uBitDevice = null;
+let rxCharacteristic = null;
+let serialPort = null;
 
-    async function init() {
-      document.getElementById('startBtn').disabled = true;
-      info.textContent = '模型載入中…';
+const currentBigEl = document.getElementById("currentBig");
+const logEl = document.getElementById("log");
+const controlsArea = document.getElementById("controlsArea");
+const toggleBtn = document.getElementById("toggleCustomMode");
 
-      const URL = "https://storage.googleapis.com/teachablemachine-models/posenet/mobilenet/";
-      model = await tmPose.load(URL + "model.json", URL + "metadata.json");
+let sendInterval = null;
+let activeCommand = null;
+let gripperActive = false;
+let isCustomMode = false;
+let isMouseDown = false;
+let draggingElement = null;
 
-      // 關鍵修法：改用標準 getUserMedia，自己手動把 stream 塞進 video
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480 },
-          audio: false
-        });
-        video.srcObject = stream;
-        
-        // 等第一幀出來再開始 loop
-        video.onloadedmetadata = () => {
-          video.play();
-          info.textContent = '偵測中… 請站到鏡頭前';
-          window.requestAnimationFrame(loop);
-        };
-
-      } catch (err) {
-        info.textContent = '無法取得攝影機權限！請確認用 localhost 或 https 開啟，並允許攝影機';
-        console.error(err);
-        document.getElementById('startBtn').disabled = false;
+// 佈局儲存
+function savePositions() {
+  const positions = {};
+  ["up","left","open","right","down","close"].forEach(id => {
+    const el = document.getElementById("btn-" + id);
+    positions[id] = { top: el.style.top, left: el.style.left, transform: el.style.transform };
+  });
+  localStorage.setItem("armControllerLayout_mobile", JSON.stringify(positions));
+}
+function loadPositions() {
+  const saved = localStorage.getItem("armControllerLayout_mobile");
+  if (saved) {
+    const positions = JSON.parse(saved);
+    Object.keys(positions).forEach(id => {
+      const el = document.getElementById("btn-" + id);
+      if (el) {
+        el.style.top = positions[id].top || "";
+        el.style.left = positions[id].left || "";
+        el.style.transform = positions[id].transform || "";
       }
+    });
+  }
+}
+
+// 自訂模式
+toggleBtn.addEventListener("click", () => {
+  isCustomMode = !isCustomMode;
+  toggleBtn.innerHTML = isCustomMode ? "完成<br>編輯" : "自訂<br>模式";
+  toggleBtn.classList.toggle("custom-on", isCustomMode);
+  document.querySelectorAll(".draggable-btn button").forEach(b => b.style.pointerEvents = isCustomMode ? "none" : "auto");
+  if (!isCustomMode) savePositions();
+});
+
+// 拖曳（手機超順）
+function startDrag(e, el) {
+  if (!isCustomMode) return;
+  e.preventDefault();
+  draggingElement = el;
+  el.classList.add("dragging");
+}
+function drag(e) {
+  if (!draggingElement) return;
+  e.preventDefault();
+  const rect = controlsArea.getBoundingClientRect();
+  const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+  const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+  if (!clientX || !clientY) return;
+  
+  let x = clientX - rect.left - 65;
+  let y = clientY - rect.top - 65;
+  x = Math.max(10, Math.min(x, rect.width - 140));
+  y = Math.max(10, Math.min(y, rect.height - 140));
+  
+  draggingElement.style.left = x + "px";
+  draggingElement.style.top = y + "px";
+  draggingElement.style.transform = "translateX(-50%) translateY(0)";
+}
+function endDrag() {
+  if (draggingElement) {
+    draggingElement.classList.remove("dragging");
+    draggingElement = null;
+  }
+}
+
+document.querySelectorAll(".draggable-btn").forEach(el => {
+  const cmd = el.id.split("-")[1];
+  el.addEventListener("mousedown", e => isCustomMode ? startDrag(e, el) : startSending(cmd));
+  el.addEventListener("touchstart", e => isCustomMode ? startDrag(e, el) : (e.preventDefault(), startSending(cmd)));
+});
+document.addEventListener("mousemove", drag);
+document.addEventListener("touchmove", e => { e.preventDefault(); drag(e); }, { passive: false });
+document.addEventListener("mouseup", endDrag);
+document.addEventListener("touchend", endDrag);
+
+// 傳送與十連stop（完全保留）
+function logSent(cmd) {
+  const time = new Date().toLocaleTimeString("zh-HK", {hour12:false});
+  const entry = document.createElement("div");
+  entry.className = "log-entry";
+  entry.innerHTML = `<span>${cmd}</span><small>${time}</small>`;
+  logEl.insertBefore(entry, logEl.firstChild);
+  if (logEl.children.length > 8) logEl.removeChild(logEl.lastChild);
+  currentBigEl.textContent = cmd === "stop" ? "停止" : cmd.toUpperCase();
+  currentBigEl.className = cmd === "stop" ? "stopped" : "sending";
+}
+
+async function sendToMicrobit(message) {
+  const data = message + "\n";
+  const encoder = new TextEncoder();
+  try {
+    if (serialPort?.writable) {
+      const writer = serialPort.writable.getWriter();
+      await writer.write(encoder.encode(data));
+      writer.releaseLock();
+      logSent(message);
+      return true;
     }
-
-    async function loop() {
-      await predict();
-      window.requestAnimationFrame(loop);
+    if (rxCharacteristic) {
+      await rxCharacteristic.writeValueWithoutResponse(encoder.encode(data));
+      logSent(message);
+      return true;
     }
+  } catch (err) {
+    console.error(err);
+    document.getElementById("status").textContent = "發送失敗：" + err.message;
+    document.getElementById("status").className = "error";
+  }
+}
 
-    async function predict() {
-      const { pose } = await model.estimatePose(video);  // 直接傳 video 元素
+async function sendTenStop() {
+  for (let i = 0; i < 10; i++) {
+    await sendToMicrobit("stop");
+    await new Promise(r => setTimeout(r, 60));
+  }
+}
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(video, 0, 0, 640, 480);
+function startSending(cmd) {
+  if (isCustomMode || (activeCommand === cmd && isMouseDown)) return;
+  if (sendInterval) clearInterval(sendInterval);
+  isMouseDown = true;
+  activeCommand = cmd;
+  if (cmd === "open" || cmd === "close") gripperActive = true;
+  sendToMicrobit(cmd);
+  sendInterval = setInterval(() => sendToMicrobit(cmd), 100);
+}
 
-      if (pose && pose.score > 0.3) {
-        tmPose.drawKeypoints(pose.keypoints, 0.5, ctx);
-        tmPose.drawSkeleton(pose.keypoints, 0.5, ctx);
-        info.textContent = `全身已偵測！信心度：${pose.score.toFixed(2)}`;
-      } else {
-        info.textContent = '沒有偵測到人體';
+function stopSending() {
+  if (!isMouseDown || isCustomMode) return;
+  isMouseDown = false;
+
+  const anyGripper = document.querySelector("#btn-open button")?.matches(":active") || 
+                     document.querySelector("#btn-close button")?.matches(":active");
+  if (!anyGripper) gripperActive = false;
+
+  const anyDir = ["up","down","left","right"].some(id => 
+    document.querySelector(`#btn-${id} button`)?.matches(":active")
+  );
+
+  if (!anyDir && activeCommand && !["open","close"].includes(activeCommand)) {
+    clearInterval(sendInterval); sendInterval = null; activeCommand = null;
+    sendToMicrobit("stop");
+  }
+
+  if (!gripperActive) {
+    clearInterval(sendInterval); sendInterval = null; activeCommand = null;
+    sendTenStop();
+  }
+}
+
+document.querySelectorAll(".draggable-btn button").forEach(btn => {
+  btn.addEventListener("mouseup", stopSending);
+  btn.addEventListener("touchend", stopSending);
+});
+
+// 藍牙與USB連線（完整）
+async function connectBluetooth() { /* 與前一版完全相同 */ 
+  try {
+    document.getElementById("status").textContent = "正在搜尋 micro:bit (藍牙)...";
+    document.getElementById("status").className = "warning";
+    uBitDevice = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: "BBC micro:bit" }],
+      optionalServices: [UART_SERVICE_UUID]
+    });
+    uBitDevice.addEventListener("gattserverdisconnected", () => {
+      document.getElementById("status").textContent = "藍牙已斷線";
+      document.getElementById("status").className = "error";
+    });
+    const server = await uBitDevice.gatt.connect();
+    const service = await server.getPrimaryService(UART_SERVICE_UUID);
+    const txChar = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
+    await txChar.startNotifications();
+    txChar.addEventListener("characteristicvaluechanged", e => {
+      const text = new TextDecoder().decode(e.target.value).trim();
+      if (text) console.log("micro:bit 回傳:", text);
+    });
+    rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
+    document.getElementById("status").textContent = "藍牙已成功連線";
+    document.getElementById("status").className = "success";
+  } catch (err) {
+    document.getElementById("status").textContent = "藍牙連接失敗: " + err.message;
+    document.getElementById("status").className = "error";
+  }
+}
+
+async function connectUSB() { /* 與前一版完全相同 */ 
+  try {
+    document.getElementById("status").textContent = "請選擇 micro:bit 的序列埠 (USB)...";
+    document.getElementById("status").className = "warning";
+    serialPort = await navigator.serial.requestPort();
+    await serialPort.open({ baudRate: 9600 });
+    document.getElementById("status").textContent = "USB 已成功連線";
+    document.getElementById("status").className = "success";
+
+    const reader = serialPort.readable.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    (async () => {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (let line of lines) {
+          line = line.trim();
+          if (line) console.log("micro:bit (USB) 回傳:", line);
+        }
       }
-    }
+    })();
+  } catch (err) {
+    document.getElementById("status").textContent = "USB 連接失敗: " + err.message;
+    document.getElementById("status").className = "error";
+  }
+}
 
-    document.getElementById('startBtn').addEventListener('click', init);
-  </script>
+document.getElementById("connectBluetooth").addEventListener("click", connectBluetooth);
+document.getElementById("connectUSB").addEventListener("click", connectUSB);
+
+// 初始化
+loadPositions();
+logSent("stop");
+</script>
 </body>
 </html>
